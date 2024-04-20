@@ -1,41 +1,58 @@
 {
-  description = "A basic gomod2nix flake";
+  description = "Description for the project";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-  inputs.flake-utils.url = "github:numtide/flake-utils";
-  inputs.gomod2nix.url = "github:nix-community/gomod2nix";
-  inputs.gomod2nix.inputs.nixpkgs.follows = "nixpkgs";
-  inputs.gomod2nix.inputs.flake-utils.follows = "flake-utils";
+  inputs = {
+    flake-parts.url = "github:hercules-ci/flake-parts";
+    gomod2nix.url = "github:nix-community/gomod2nix";
+    gomod2nix.inputs.nixpkgs.follows = "nixpkgs";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  };
 
   outputs =
-    {
-      self,
-      nixpkgs,
-      flake-utils,
-      gomod2nix,
-    }:
-    (flake-utils.lib.eachDefaultSystem (
-      system:
-      let
-        pkgs = nixpkgs.legacyPackages.${system};
+    inputs@{ flake-parts, ... }:
+    flake-parts.lib.mkFlake { inherit inputs; } {
+      imports = [
+        # To import a flake module
+        # 1. Add foo to inputs
+        # 2. Add foo as a parameter to the outputs function
+        # 3. Add here: foo.flakeModule
+        inputs.flake-parts.flakeModules.easyOverlay
+      ];
+      systems = [
+        "x86_64-linux"
+        "aarch64-linux"
+        "aarch64-darwin"
+        "x86_64-darwin"
+      ];
+      perSystem =
+        {
+          config,
+          self',
+          inputs',
+          pkgs,
+          system,
+          ...
+        }:
+        {
+          # Per-system attributes can be defined here. The self' and inputs'
+          # module parameters provide easy access to attributes of the same
+          # system.
 
-        # The current default sdk for macOS fails to compile go projects, so we use a newer one for now.
-        # This has no effect on other platforms.
-        callPackage = pkgs.darwin.apple_sdk_11_0.callPackage or pkgs.callPackage;
-      in
-      {
-        packages =
-          let
-            lob = callPackage ./. { inherit (gomod2nix.legacyPackages.${system}) buildGoApplication; };
-          in
-          {
-            lob = lob;
-            default = lob;
+          # https://flake.parts/overlays.html?highlight=overlay#an-overlay-for-free-with-flake-parts
+          overlayAttrs = {
+            inherit (config.packages) lob;
           };
-        overlays.default = final: prev: { lob = self.packages.lob; };
-        devShells.default = callPackage ./shell.nix {
-          inherit (gomod2nix.legacyPackages.${system}) mkGoEnv gomod2nix;
+
+          lob = (pkgs.darwin.apple_sdk_11_0.callPackage or pkgs.callPackage) ./. {
+            inherit (inputs.gomod2nix.legacyPackages.${system}) buildGoApplication;
+          };
+          # Equivalent to  inputs'.nixpkgs.legacyPackages.hello;
+          packages.default = self'.packages.lob;
         };
-      }
-    ));
+      flake = {
+        # The usual flake attributes can be defined here, including system-
+        # agnostic ones like nixosModule and system-enumerating ones, although
+        # those are more easily expressed in perSystem.
+      };
+    };
 }
